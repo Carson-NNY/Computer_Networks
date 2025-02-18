@@ -6,13 +6,14 @@
 #   actual client and a client to the actual server. It varies
 #   link bandwidth based on an external file (e.g., bw.txt).
 
-#!/usr/bin/env python3.10
+# !/usr/bin/env python3.10
 import argparse
 from socket import *
 import threading
 import time
 
 bandwidths = {}
+
 
 def createSocketToClient(p):
     """
@@ -21,10 +22,11 @@ def createSocketToClient(p):
     arguments:
     p -- the listening port of the network
     """
-    s = socket(AF_INET,SOCK_STREAM)
-    s.bind(('',p))
+    s = socket(AF_INET, SOCK_STREAM)
+    s.bind(('', p))
     s.listen(1)
     return s
+
 
 def connectSocketToClient(ts):
     """
@@ -36,6 +38,7 @@ def connectSocketToClient(ts):
     s, addr = ts.accept()
     return s
 
+
 def connectSocketToServer(a, p):
     """
     connecting network to server socket
@@ -44,10 +47,11 @@ def connectSocketToServer(a, p):
     a -- the server address
     p -- the listening port of the server
     """
-    s = socket(AF_INET,SOCK_STREAM)
-    s.bind(('',0))
-    s.connect((a,p))
+    s = socket(AF_INET, SOCK_STREAM)
+    s.bind(('', 0))
+    s.connect((a, p))
     return s
+
 
 def setUpBandWidths(bwFileName):
     """
@@ -59,6 +63,7 @@ def setUpBandWidths(bwFileName):
     for line in open(bwFileName, 'r').readlines():
         bandwidths[line.split(':')[0]] = line.split(':')[1].split('\n')[0]
     return True
+
 
 def getCurrentBandWidth(st):
     """
@@ -74,7 +79,8 @@ def getCurrentBandWidth(st):
             lastBW = bandwidths[t]
     return lastBW
 
-def handleClientRequest(stc, sts): 
+
+def handleClientRequest(stc, sts):
     """
     handling the clients request
 
@@ -89,7 +95,8 @@ def handleClientRequest(stc, sts):
             break
         sts.sendall(req)
 
-def handleServerResponse(sts, stc, st, l): 
+
+def handleServerResponse(sts, stc, st, l):
     """
     handling the server's response (data)
 
@@ -107,15 +114,16 @@ def handleServerResponse(sts, stc, st, l):
         d = max(sdt, float(l))
         time.sleep(d)
         stc.send(c)
-  
+
+
 if __name__ == '__main__':
     # accepts commandline arguments
     parser = argparse.ArgumentParser(
-                    prog='network.py',
-                    description='network.py simulates the network. It forwards data between the server/client programs and varies link conditions to test your implementation of the rate adaptation algorithm in the client.')
-    parser.add_argument('networkPort', type=int, choices=range(49151,65535), metavar='networkPort: (49151 – 65535)')
+        prog='network.py',
+        description='network.py simulates the network. It forwards data between the server/client programs and varies link conditions to test your implementation of the rate adaptation algorithm in the client.')
+    parser.add_argument('networkPort', type=int, choices=range(49151, 65535), metavar='networkPort: (49151 – 65535)')
     parser.add_argument('serverAddr', type=str)
-    parser.add_argument('serverPort', type=int, choices=range(49151,65535), metavar='serverPort: (49151 – 65535)')
+    parser.add_argument('serverPort', type=int, choices=range(49151, 65535), metavar='serverPort: (49151 – 65535)')
     parser.add_argument('bwFileName', type=str)
     parser.add_argument('latency', type=float)
 
@@ -132,6 +140,6 @@ if __name__ == '__main__':
     # starts child thread that handles client requests
     t = threading.Thread(target=handleClientRequest, args=(socketToClient, socketToServer))
     t.start()
-    
+
     # leaves parent thread to handle server responses
     handleServerResponse(socketToServer, socketToClient, startTime, args.latency)
