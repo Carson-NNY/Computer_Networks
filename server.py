@@ -9,6 +9,7 @@
 import socket
 import sys
 import os
+import struct
 
 if len(sys.argv) != 2:
     print("Usage: python server.py <port>")
@@ -43,9 +44,11 @@ while True:
                     continue
                 with open(manifest_path, "rb") as file:
                     print(f"Sending manifest file: {file}")
-                    connectionSocket.sendall(file.read())
+                    data = file.read()
 
-                connectionSocket.sendall(b"manifest_end")  # Send manifest_end to indicate end of manifest
+                manifest_len = len(data)
+                connectionSocket.sendall(struct.pack("!I", manifest_len))
+                connectionSocket.sendall(data)
                 print("Manifest sent.")
 
             elif len(tokens) == 3:  # Chunk request
@@ -61,7 +64,14 @@ while True:
                     continue
 
                 with open(chunk_path, "rb") as file:
-                    connectionSocket.sendall(file.read())
+                    data = file.read()
+
+                chunk_len = len(data)
+                # send the length of the chunk first
+                connectionSocket.sendall(struct.pack("!I", chunk_len))
+
+                # print(f"Sending chunk file: {file}")
+                connectionSocket.sendall(data)
 
         except ConnectionResetError:
             print("Client disconnected.")
