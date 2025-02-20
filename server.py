@@ -60,7 +60,7 @@ while True:
                 print(f"Requested chunk: {chunk_path}")
 
                 if not os.path.exists(chunk_path):
-                    connectionSocket.sendall("video not found".encode())
+                    connectionSocket.sendall(b"video not found")
                     continue
 
                 with open(chunk_path, "rb") as file:
