@@ -40,12 +40,15 @@ while True:
                 manifest_path = os.path.join("data", video_name, "manifest.mpd")
 
                 if not os.path.exists(manifest_path):
-                    connectionSocket.sendall("video not found".encode())
+                    print(f"Manifest file not found test=======: {manifest_path}")
+                    connectionSocket.sendall(b'0') # first send a one byte to indicate that the file is not found
                     continue
                 with open(manifest_path, "rb") as file:
+
                     print(f"Sending manifest file: {file}")
                     data = file.read()
 
+                connectionSocket.sendall(b'1') # first send a one byte to indicate that the file is found
                 manifest_len = len(data)
                 connectionSocket.sendall(struct.pack("!I", manifest_len))
                 connectionSocket.sendall(data)
@@ -60,12 +63,14 @@ while True:
                 print(f"Requested chunk: {chunk_path}")
 
                 if not os.path.exists(chunk_path):
-                    connectionSocket.sendall(b"video not found")
+                    connectionSocket.sendall(b'0')
+                    # connectionSocket.sendall(b"video not found")
                     continue
 
                 with open(chunk_path, "rb") as file:
                     data = file.read()
 
+                connectionSocket.sendall(b'1')
                 chunk_len = len(data)
                 # send the length of the chunk first
                 connectionSocket.sendall(struct.pack("!I", chunk_len))

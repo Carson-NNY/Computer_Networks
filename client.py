@@ -14,74 +14,100 @@ import xml.etree.ElementTree as parser
 import struct
 import time
 
-def request_rest_chunk(client_socket, video_name, first_throughput, num_chunks, sorted_bitrates, alpha):
+init_connect_t = None
+
+def log_chunk(duration, throughput, avg_throughput, bitrate, video_name, idx):
+
+    global init_connect_t
+    cur_time = time.time()
+    time_log = cur_time - init_connect_t
+    # Format chunk name as in the example: e.g., bunny-292312-00000.m4s
+    chunkname = f"{video_name}-{bitrate}-{idx:05d}.m4s"
+    log_line = f"{time_log} {duration} {throughput} {avg_throughput} {bitrate} {chunkname}\n"
+    with open("log.txt", "a") as f:
+        f.write(log_line)
+
+def get_chunk(client_socket, video_name, bitrate, idx):
+
+    chunk_request = f"{video_name} {bitrate} {idx}"
+    t_s = time.time()
+    client_socket.sendall(chunk_request.encode())
+    print("Successfully sent chunk request:", chunk_request)
+
+    chunk_data, data_size_bit = receive_data(client_socket)
+    if chunk_data is None:
+        return None, 0, 0
+
+    t_f = time.time()
+    duration = t_f - t_s
+    throughput = data_size_bit / duration if duration > 0 else 0
+    return chunk_data, throughput, duration
+
+
+def save_chunk(chunk, idx, chunks_queue):
+    """
+    Saves the chunk to a temp dir.
+    """
+
+    chunk_filepath = os.path.join("tmp", f"chunk_{idx}.m4s")
+    with open(chunk_filepath, "wb") as f:
+        f.write(chunk)
+    print(f"Saved chunk {idx} at {chunk_filepath}")
+    # put the path of the chunk to the queue
+    # chunks_queue.put(chunk_filepath)
+
+def request_rest_chunk(client_socket, video_name, initial_throughput, num_chunks, sorted_bitrates, alpha, chunks_queue):
     """
     Requests and receives the rest of the chunks from the server.
+    Uses a helper function to handle the request and timing for each chunk.
     """
-
-    avg_throughput = first_throughput
+    avg_throughput = initial_throughput
 
     for i in range(1, num_chunks):
-        # calculate the next bitrate
+        # Determine the bitrate for this chunk based on the current EWMA throughput estimate.
         bitrate = sorted_bitrates[0]
         for bit in reversed(sorted_bitrates):
-            # print(f"bit: {bit}, avg_throughput: {avg_throughput}")
             if avg_throughput >= 1.5 * bit:
                 bitrate = bit
                 break
-        # print( f"Chunk {i}: Bitrate {bitrate} bps | EWMA Throughput {avg_throughput:.2f} bps")
 
-        chunk_request = f"{video_name} {bitrate} {i}"
-        print(f"Requesting chunk {i} with bitrate {bitrate} bps")
-        t_s = time.time()
-        client_socket.sendall(chunk_request.encode())
-        # receive the chunk data
-        rest_chunk, data_size_bit = receive_data(client_socket)
-        # print(f"data_size_bit: {data_size_bit} bits")
-        t_f = time.time()
-        duration = t_f - t_s
-
-        # Calculate throughput
-        if duration > 0:
-            current_throughput = data_size_bit / duration
-            avg_throughput = alpha * current_throughput + (1 - alpha) * avg_throughput
-        else:
-            current_throughput = 0
-        # print(f"current_throughput: {current_throughput} bits/sec")
-
-        # check if the chunk was not found
-        if check_video_not_found(rest_chunk):
-            client_socket.close()
+        chunk_data, cur_throughput, duration = get_chunk(client_socket, video_name, bitrate, i)
+        if chunk_data is None:
+            print(f"Failed to receive chunk {i}.")
             return
 
-        # write chunk to the temporary directory
-        chunk_filepath = os.path.join("tmp", f"chunk_{i}.m4s")
-        with open(chunk_filepath, "wb") as f:
-            f.write(rest_chunk)
-        print(f"Saved chunk {i} at {chunk_filepath}")
-        # put the path of the chunk to the queue
-        # chunks_queue.put(chunk_filepath)
+        # Update the throughput using the EWMA formula.
+        avg_throughput = alpha * cur_throughput + (1 - alpha) * avg_throughput
+        log_chunk(duration, cur_throughput, avg_throughput, bitrate, video_name, i)
+        save_chunk(chunk_data, i, chunks_queue)
+
 
 def receive_data(clientSocket):
     """
     Receives the manifest/video file from the server and returns it as a decoded string.
     """
 
+    file_existed = clientSocket.recv(1)
+    if not file_existed or file_existed == b"0":
+        print("video not found")
+        clientSocket.close()
+        return None, None
+
     file_size = clientSocket.recv(4)
     if not file_size:
-        print("Failed to receive file")
-        exit()
+        print("video not found")
+        clientSocket.close()
+        return None, None
+
     data_size_byte = struct.unpack("!I", file_size)[0]
     data_size_bit = data_size_byte * 8
     print(f"=====Expected file length: {data_size_byte} bytes=======")
-
     res = b""
     while len(res) < data_size_byte:
         data = clientSocket.recv(min(4096, data_size_byte - len(res)))  # 4096?????????????  Adjust read size dynamically
         if not data:
             break
         res += data
-
 
     return res, data_size_bit
 
@@ -122,18 +148,6 @@ def parse_manifest(mani_file):
         return None, None, None
 
 
-
-def check_video_not_found(data):
-    """
-    Checks if the response data contains "video not found".
-    Returns True if the video is not found, otherwise False.
-    """
-    if b"video not found" in data:
-        print("video not found")
-        return True
-    return False
-
-
 def client(server_addr, server_port, video_name, alpha, chunks_queue):
     """
     the client function
@@ -147,24 +161,24 @@ def client(server_addr, server_port, video_name, alpha, chunks_queue):
     chunks_queue -- the queue for passing the path of the chunks to the video player
     """
 
-
+    global init_connect_t
     # create a socket and connect to the server
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((server_addr, server_port))
+    init_connect_t = time.time()
 
     # send the video name to request the manifest file
     client_socket.send(video_name.encode())
 
     mani_file, mani_size_bit = (receive_data(client_socket))
+    if mani_file is None:
+        return
+
     mani_file = mani_file.decode(errors="replace").strip()
 
     # Check if the received response is empty
     if not mani_file:
         print("No data received from server.")
-        return
-    # Check if the video was not found
-    if check_video_not_found(mani_file.encode()):
-        client_socket.close()
         return
 
     print(f"---Received manifest before parsing:\n{mani_file}")
@@ -178,37 +192,21 @@ def client(server_addr, server_port, video_name, alpha, chunks_queue):
     print(f"Number of chunks: {num_chunks}")
     print(f"Lowest bitrate: {lowest_bitrate}")
 
-    chunk_request = f"{video_name} {lowest_bitrate} 0"
-
-    t_s = time.time()
-    client_socket.sendall(chunk_request.encode())
-    print("successfully sent chunk request: ", chunk_request)
-    # receive the first chunk data
-    first_chunk, first_chunk_size_bit = receive_data(client_socket)
-    t_f = time.time()
-    duration = t_f - t_s
-    first_throughput = first_chunk_size_bit / duration if duration > 0 else 0
-    print(f"first_throughput: {first_throughput} bytes/sec")
-
-    if check_video_not_found(first_chunk):
-        client_socket.close()
+    # Request the first chunk with the lowest bitrate
+    first_chunk, first_throughput, duration = get_chunk(client_socket, video_name, lowest_bitrate, 0)
+    if first_chunk is None:
+        print("Failed to receive first chunk.")
         return
 
+    print(f"First throughput: {first_throughput} bits/sec")
+    log_chunk(duration, first_throughput, first_throughput, lowest_bitrate, video_name, 0)
     # create temporary directory if not exist
     if not os.path.exists("tmp"):
         os.makedirs("tmp")
-
-    # write chunk to the temporary directory
-    chunk_filepath = os.path.join("tmp", "chunk_0.m4s")
-    with open(chunk_filepath, "wb") as f:
-        f.write(first_chunk)
-
-    print(f"successfully received the first chunk  at {chunk_filepath}")
-    # put the path of the chunk to the queue
-    # chunks_queue.put(chunk_filepath)
+    save_chunk(first_chunk, 0, chunks_queue)
 
     # request and receive the rest of the chunks
-    request_rest_chunk(client_socket, video_name, first_throughput, num_chunks, sorted_bitrates, alpha)
+    request_rest_chunk(client_socket, video_name, first_throughput, num_chunks, sorted_bitrates, alpha, chunks_queue)
 
     client_socket.close()
 
