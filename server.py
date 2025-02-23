@@ -32,35 +32,32 @@ while True:
             if not sentence:
                 break  # Exit loop if client disconnects
 
-            print(f"Client requested: {sentence}")
             tokens = sentence.split()
 
-            if len(tokens) == 1:  # Manifest request
-                video_name = tokens[0]
-                manifest_path = os.path.join("data", video_name, "manifest.mpd")
+            if tokens[0] == "manifest.mpd":
+                if len(tokens) < 2:
+                    continue
+
+                video_name = tokens[1]
+                manifest_path = os.path.join("data", video_name, tokens[0])
 
                 if not os.path.exists(manifest_path):
-                    print(f"Manifest file not found test=======: {manifest_path}")
-                    connectionSocket.sendall(b'0') # first send a one byte to indicate that the file is not found
+                    connectionSocket.sendall(b'0')
                     continue
-                with open(manifest_path, "rb") as file:
 
-                    print(f"Sending manifest file: {file}")
+                with open(manifest_path, "rb") as file:
                     data = file.read()
 
-                connectionSocket.sendall(b'1') # first send a one byte to indicate that the file is found
+                connectionSocket.sendall(b'1')
                 manifest_len = len(data)
                 connectionSocket.sendall(struct.pack("!I", manifest_len))
                 connectionSocket.sendall(data)
-                print("Manifest sent.")
 
             elif len(tokens) == 3:  # Chunk request
-                print("Chunk request entered")
                 video_name, bitrate, chunk_no = tokens
                 chunk_filename = f"{video_name}_{bitrate}_{int(chunk_no):05d}.m4s"
                 chunk_path = os.path.join("data", video_name, "chunks", chunk_filename)
 
-                print(f"Requested chunk: {chunk_path}")
 
                 if not os.path.exists(chunk_path):
                     connectionSocket.sendall(b'0')

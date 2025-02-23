@@ -32,7 +32,6 @@ def get_chunk(client_socket, video_name, bitrate, idx):
     chunk_request = f"{video_name} {bitrate} {idx}"
     t_s = time.time()
     client_socket.sendall(chunk_request.encode())
-    print("Successfully sent chunk request:", chunk_request)
 
     chunk_data, data_size_bit = receive_data(client_socket)
     if chunk_data is None:
@@ -52,8 +51,6 @@ def save_chunk(chunk, idx, chunks_queue):
     chunk_filepath = os.path.join("tmp", f"chunk_{idx}.m4s")
     with open(chunk_filepath, "wb") as f:
         f.write(chunk)
-    print(f"Saved chunk {idx} at {chunk_filepath}")
-    # put the path of the chunk to the queue
     # chunks_queue.put(chunk_filepath)
 
 def request_rest_chunk(client_socket, video_name, initial_throughput, num_chunks, sorted_bitrates, alpha, chunks_queue):
@@ -101,7 +98,6 @@ def receive_data(clientSocket):
 
     data_size_byte = struct.unpack("!I", file_size)[0]
     data_size_bit = data_size_byte * 8
-    print(f"=====Expected file length: {data_size_byte} bytes=======")
     res = b""
     while len(res) < data_size_byte:
         data = clientSocket.recv(min(4096, data_size_byte - len(res)))  # 4096?????????????  Adjust read size dynamically
@@ -129,7 +125,6 @@ def parse_manifest(mani_file):
         # Extract available bitrates
         representation_elements = root.findall(".//Representation")
         if not representation_elements:
-            print("No representations found in manifest.")
             return None, None, None
 
         bitrates = [int(rep.get("bandwidth")) for rep in representation_elements if rep.get("bandwidth") is not None]
@@ -168,7 +163,9 @@ def client(server_addr, server_port, video_name, alpha, chunks_queue):
     init_connect_t = time.time()
 
     # send the video name to request the manifest file
-    client_socket.send(video_name.encode())
+    # client_socket.send(video_name.encode())
+    manifest_request = f"manifest.mpd {video_name}"
+    client_socket.send(manifest_request.encode())
 
     mani_file, mani_size_bit = (receive_data(client_socket))
     if mani_file is None:
@@ -181,16 +178,11 @@ def client(server_addr, server_port, video_name, alpha, chunks_queue):
         print("No data received from server.")
         return
 
-    print(f"---Received manifest before parsing:\n{mani_file}")
-
     # parse the manifest file
     num_chunks, lowest_bitrate, sorted_bitrates = parse_manifest(mani_file)
     if num_chunks is None or lowest_bitrate is None:
         print("Failed to parse manifest.")
         return
-
-    print(f"Number of chunks: {num_chunks}")
-    print(f"Lowest bitrate: {lowest_bitrate}")
 
     # Request the first chunk with the lowest bitrate
     first_chunk, first_throughput, duration = get_chunk(client_socket, video_name, lowest_bitrate, 0)
@@ -198,7 +190,6 @@ def client(server_addr, server_port, video_name, alpha, chunks_queue):
         print("Failed to receive first chunk.")
         return
 
-    print(f"First throughput: {first_throughput} bits/sec")
     log_chunk(duration, first_throughput, first_throughput, lowest_bitrate, video_name, 0)
     # create temporary directory if not exist
     if not os.path.exists("tmp"):
