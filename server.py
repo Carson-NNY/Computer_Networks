@@ -26,11 +26,11 @@ while True:
     connectionSocket, addr = serverSocket.accept()
     print(f"Connected by: {addr}")
 
-    while True:  # Keep connection open for multiple requests
+    while True:
         try:
             sentence = connectionSocket.recv(1024).decode().strip()
             if not sentence:
-                break  # Exit loop if client disconnects
+                break
 
             tokens = sentence.split()
 
@@ -61,7 +61,6 @@ while True:
 
                 if not os.path.exists(chunk_path):
                     connectionSocket.sendall(b'0')
-                    # connectionSocket.sendall(b"video not found")
                     continue
 
                 with open(chunk_path, "rb") as file:
@@ -69,10 +68,8 @@ while True:
 
                 connectionSocket.sendall(b'1')
                 chunk_len = len(data)
-                # send the length of the chunk first
                 connectionSocket.sendall(struct.pack("!I", chunk_len))
 
-                # print(f"Sending chunk file: {file}")
                 connectionSocket.sendall(data)
 
         except ConnectionResetError:
